@@ -1,0 +1,6 @@
+batch_size: 32
+learning_rate: 0.0003
+epochs: 10
+weight_decay: 0.01
+device: auto
+checkpoint_path: checkpoints/model.pt

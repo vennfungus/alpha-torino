@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+.env
+.idea/
+.vscode/
+
+# Local datasets and model weights
+data/*
+!data/**/
+!data/**/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
+
+# Notebook outputs
+.ipynb_checkpoints/
