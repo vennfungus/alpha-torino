@@ -7,29 +7,50 @@ from pathlib import Path
 import torch
 import yaml
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from .dataset import CausalLMDataset, encode_text, load_raw_corpus
 from .model import CausalLanguageModel
 
 
+def split_tokens(
+    token_ids: torch.Tensor,
+    block_size: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Split tokens in order into 90% training and 10% validation data."""
+    split_index = int(len(token_ids) * 0.9)
+    if split_index <= block_size or len(token_ids) - split_index <= block_size:
+        raise ValueError(
+            "Corpus is too small for a 90/10 train/validation split with "
+            f"block_size ({block_size})"
+        )
+    return token_ids[:split_index], token_ids[split_index:]
+
+
 def train_model(
     model: CausalLanguageModel,
-    batches: Iterable[tuple[torch.Tensor, torch.Tensor]],
+    train_batches: Iterable[tuple[torch.Tensor, torch.Tensor]],
     optimizer: torch.optim.Optimizer,
     epochs: int,
+    validation_batches: Iterable[tuple[torch.Tensor, torch.Tensor]],
     device: torch.device | str = "cpu",
-) -> list[float]:
-    """Train the model and return the mean loss for each epoch."""
+) -> list[tuple[float, float]]:
+    """Train and validate each epoch, returning train and validation losses."""
     if epochs < 1:
         raise ValueError("epochs must be at least 1")
 
     model.to(device)
-    model.train()
     epoch_losses = []
-    for _ in range(epochs):
+    for epoch in range(1, epochs + 1):
+        model.train()
         total_loss = 0.0
-        batch_count = 0
-        for input_ids, targets in batches:
+        total_tokens = 0
+        train_progress = tqdm(
+            train_batches,
+            desc=f"Epoch {epoch}/{epochs} [train]",
+            leave=False,
+        )
+        for input_ids, targets in train_progress:
             input_ids = input_ids.to(device)
             targets = targets.to(device)
             optimizer.zero_grad(set_to_none=True)
@@ -38,11 +59,43 @@ def train_model(
                 raise RuntimeError("Model did not return a loss for labelled input")
             loss.backward()
             optimizer.step()
-            total_loss += loss.item()
-            batch_count += 1
-        if batch_count == 0:
-            raise ValueError("batches must contain at least one batch")
-        epoch_losses.append(total_loss / batch_count)
+            token_count = targets.numel()
+            total_loss += loss.item() * token_count
+            total_tokens += token_count
+            train_progress.set_postfix(loss=f"{total_loss / total_tokens:.4f}")
+        if total_tokens == 0:
+            raise ValueError("train_batches must contain at least one batch")
+        train_loss = total_loss / total_tokens
+
+        model.eval()
+        validation_loss_total = 0.0
+        validation_tokens = 0
+        validation_progress = tqdm(
+            validation_batches,
+            desc=f"Epoch {epoch}/{epochs} [valid]",
+            leave=False,
+        )
+        with torch.no_grad():
+            for input_ids, targets in validation_progress:
+                targets = targets.to(device)
+                _, loss = model(input_ids.to(device), targets)
+                if loss is None:
+                    raise RuntimeError("Model did not return a validation loss")
+                token_count = targets.numel()
+                validation_loss_total += loss.item() * token_count
+                validation_tokens += token_count
+                validation_progress.set_postfix(
+                    loss=f"{validation_loss_total / validation_tokens:.4f}"
+                )
+        if validation_tokens == 0:
+            raise ValueError("validation_batches must contain at least one batch")
+        validation_loss = validation_loss_total / validation_tokens
+
+        epoch_losses.append((train_loss, validation_loss))
+        print(
+            f"Epoch {epoch}/{epochs} - train loss: {train_loss:.4f} "
+            f"- validation loss: {validation_loss:.4f}"
+        )
     return epoch_losses
 
 
@@ -67,23 +120,12 @@ def main() -> None:
 
     text, source_files = load_raw_corpus(args.data_dir)
     token_ids = torch.tensor(encode_text(text), dtype=torch.long)
-    if len(token_ids) <= block_size:
-        raise ValueError(
-            f"Corpus has {len(token_ids)} bytes; it must contain more than "
-            f"block_size ({block_size}) bytes"
-        )
-
-    split_index = int(len(token_ids) * 0.9)
-    has_validation = split_index > block_size and len(token_ids) - split_index > block_size
-    if has_validation:
-        train_tokens = token_ids[:split_index]
-        validation_tokens = token_ids[split_index:]
-    else:
-        train_tokens = token_ids
-        validation_tokens = None
+    train_tokens, validation_tokens = split_tokens(token_ids, block_size)
 
     train_dataset = CausalLMDataset(train_tokens, block_size)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    validation_dataset = CausalLMDataset(validation_tokens, block_size)
+    validation_loader = DataLoader(validation_dataset, batch_size=batch_size)
 
     device_setting = train_config.get("device", "auto")
     if device_setting == "auto":
@@ -107,37 +149,14 @@ def main() -> None:
     )
 
     print(f"Training on {len(source_files)} text file(s), {len(token_ids)} UTF-8 bytes, device={device}")
-    losses = train_model(
+    train_model(
         model,
         train_loader,
         optimizer,
         epochs=train_config["epochs"],
+        validation_batches=validation_loader,
         device=device,
     )
-
-    validation_loss = None
-    if validation_tokens is not None:
-        validation_dataset = CausalLMDataset(validation_tokens, block_size)
-        validation_loader = DataLoader(validation_dataset, batch_size=batch_size)
-        model.eval()
-        total_loss = 0.0
-        total_tokens = 0
-        with torch.no_grad():
-            for input_ids, targets in validation_loader:
-                _, loss = model(input_ids.to(device), targets.to(device))
-                if loss is None:
-                    raise RuntimeError("Model did not return a validation loss")
-                count = targets.numel()
-                total_loss += loss.item() * count
-                total_tokens += count
-        validation_loss = total_loss / total_tokens
-
-    for epoch, loss in enumerate(losses, start=1):
-        print(f"Epoch {epoch}/{len(losses)} - train loss: {loss:.4f}")
-    if validation_loss is not None:
-        print(f"Validation loss: {validation_loss:.4f}")
-    else:
-        print("Validation skipped: corpus is too small for a separate validation split.")
 
     checkpoint_path = Path(train_config["checkpoint_path"])
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)

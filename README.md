@@ -56,7 +56,7 @@ Before adding files to `data/raw/`:
 4. Save as plain-text `.txt` files encoded as UTF-8. Use subfolders to organise documents if helpful; the training script searches them recursively.
 5. Exclude passwords, private correspondence, personal details and other sensitive information you do not want the model to reproduce. Keep the raw dataset private and backed up appropriately.
 
-No manual labels or train/validation folders are required. The current training script reads all `.txt` files, sorts and joins their contents with blank lines, then uses the first 90% of the resulting byte stream for training and the last 10% for validation when both portions are longer than `block_size`. This is a simple holdout by corpus position, not a random or document-level split; closely related passages may therefore appear in both portions. The script does not currently create a processed dataset or deduplicate files for you, so curate the raw files before training.
+No manual labels or train/validation folders are required. The training script reads all `.txt` files, sorts and joins their contents with blank lines, then uses the first 90% of the resulting byte stream for training and the last 10% for validation. Both portions must be longer than `block_size`. This is a simple holdout by corpus position, not a random or document-level split; closely related passages may therefore appear in both portions. Training displays batch progress and reports training and validation loss after every epoch. The script does not currently create a processed dataset or deduplicate files for you, so curate the raw files before training.
 
 ## Training
 

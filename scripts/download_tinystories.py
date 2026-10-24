@@ -5,7 +5,7 @@ from datasets import load_dataset
 
 
 OUTPUT_PATH = Path("data/raw/tinystories_sample.txt")
-MAX_STORIES = 300
+MAX_STORIES = 10
 
 
 def main() -> None:
