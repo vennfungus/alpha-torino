@@ -1,0 +1,14 @@
+Hello [NAME],
+
+Hope all's well with you. Thank you for inviting me to your group project development team in the RL class.
+
+I have found the group's idea quite interesting. But I am afraid I shall not be able to join you all at this time, since I have my own idea that includes resources from the previous courses.  
+
+In this block, I would like to develop my own system, acceleratingly. By incorporating RL algorithms, I shall complete this project so I can have time to prepare for my bachelor's graduating project.
+
+I am sorry for not participating with you this time. I wish you all the best, and besides, hope we may have the opportunity to work together in the near future.
+
+One more time, thank you for invitation, much. Wishing you and your team all the best in completing your Reinforcement Learning project!
+
+Regards,
+[USER_NAME]
