@@ -9,7 +9,7 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from .dataset import CausalLMDataset, encode_text, load_raw_corpus
+from .dataset import BufferedShuffleSampler, MappedByteCorpus, MappedCausalLMDataset
 from .model import CausalLanguageModel
 
 
@@ -33,14 +33,23 @@ def train_model(
     optimizer: torch.optim.Optimizer,
     epochs: int,
     validation_batches: Iterable[tuple[torch.Tensor, torch.Tensor]],
+    patience: int = 2,
+    min_delta: float = 0.0,
     device: torch.device | str = "cpu",
 ) -> list[tuple[float, float]]:
     """Train and validate each epoch, returning train and validation losses."""
     if epochs < 1:
         raise ValueError("epochs must be at least 1")
+    if patience < 1:
+        raise ValueError("patience must be at least 1")
+    if min_delta < 0:
+        raise ValueError("min_delta must not be negative")
 
     model.to(device)
     epoch_losses = []
+    best_validation_loss = float("inf")
+    best_model_state = None
+    epochs_without_improvement = 0
     for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
@@ -96,6 +105,24 @@ def train_model(
             f"Epoch {epoch}/{epochs} - train loss: {train_loss:.4f} "
             f"- validation loss: {validation_loss:.4f}"
         )
+        if validation_loss < best_validation_loss - min_delta:
+            best_validation_loss = validation_loss
+            best_model_state = {
+                name: value.detach().cpu().clone()
+                for name, value in model.state_dict().items()
+            }
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= patience:
+                print(
+                    f"Early stopping after {epoch} epoch(s); "
+                    f"best validation loss: {best_validation_loss:.4f}"
+                )
+                break
+    if best_model_state is None:
+        raise RuntimeError("Training completed without a best model checkpoint")
+    model.load_state_dict(best_model_state)
     return epoch_losses
 
 
@@ -118,15 +145,6 @@ def main() -> None:
     if block_size < 1 or batch_size < 1:
         raise ValueError("block_size and batch_size must be at least 1")
 
-    text, source_files = load_raw_corpus(args.data_dir)
-    token_ids = torch.tensor(encode_text(text), dtype=torch.long)
-    train_tokens, validation_tokens = split_tokens(token_ids, block_size)
-
-    train_dataset = CausalLMDataset(train_tokens, block_size)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    validation_dataset = CausalLMDataset(validation_tokens, block_size)
-    validation_loader = DataLoader(validation_dataset, batch_size=batch_size)
-
     device_setting = train_config.get("device", "auto")
     if device_setting == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -148,27 +166,62 @@ def main() -> None:
         weight_decay=train_config.get("weight_decay", 0.0),
     )
 
-    print(f"Training on {len(source_files)} text file(s), {len(token_ids)} UTF-8 bytes, device={device}")
-    train_model(
-        model,
-        train_loader,
-        optimizer,
-        epochs=train_config["epochs"],
-        validation_batches=validation_loader,
-        device=device,
-    )
+    with MappedByteCorpus(args.data_dir) as corpus:
+        split_index = int(corpus.byte_length * 0.9)
+        if (
+            split_index <= block_size
+            or corpus.byte_length - split_index <= block_size
+        ):
+            raise ValueError(
+                "Corpus is too small for a 90/10 train/validation split with "
+                f"block_size ({block_size})"
+            )
 
-    checkpoint_path = Path(train_config["checkpoint_path"])
-    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "model_config": architecture,
-            "tokenizer": "utf8_bytes",
-        },
-        checkpoint_path,
-    )
-    print(f"Saved checkpoint to {checkpoint_path}")
+        train_dataset = MappedCausalLMDataset(
+            corpus,
+            start=0,
+            end=split_index,
+            block_size=block_size,
+        )
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            sampler=BufferedShuffleSampler(train_dataset),
+        )
+        validation_dataset = MappedCausalLMDataset(
+            corpus,
+            start=split_index,
+            end=corpus.byte_length,
+            block_size=block_size,
+        )
+        validation_loader = DataLoader(validation_dataset, batch_size=batch_size)
+
+        print(
+            f"Training on {len(corpus.files)} text file(s), "
+            f"{corpus.byte_length} UTF-8 bytes, device={device}"
+        )
+        train_model(
+            model,
+            train_loader,
+            optimizer,
+            epochs=train_config["epochs"],
+            validation_batches=validation_loader,
+            patience=train_config.get("early_stopping_patience", 2),
+            min_delta=train_config.get("early_stopping_min_delta", 0.0),
+            device=device,
+        )
+
+        checkpoint_path = Path(train_config["checkpoint_path"])
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "model_state_dict": model.state_dict(),
+                "model_config": architecture,
+                "tokenizer": "utf8_bytes",
+            },
+            checkpoint_path,
+        )
+        print(f"Saved checkpoint to {checkpoint_path}")
 
 
 if __name__ == "__main__":

@@ -56,7 +56,7 @@ Before adding files to `data/raw/`:
 4. Save as plain-text `.txt` files encoded as UTF-8. Use subfolders to organise documents if helpful; the training script searches them recursively.
 5. Exclude passwords, private correspondence, personal details and other sensitive information you do not want the model to reproduce. Keep the raw dataset private and backed up appropriately.
 
-No manual labels or train/validation folders are required. The training script reads all `.txt` files, sorts and joins their contents with blank lines, then uses the first 90% of the resulting byte stream for training and the last 10% for validation. Both portions must be longer than `block_size`. This is a simple holdout by corpus position, not a random or document-level split; closely related passages may therefore appear in both portions. Training displays batch progress and reports training and validation loss after every epoch. The script does not currently create a processed dataset or deduplicate files for you, so curate the raw files before training.
+No manual labels or train/validation folders are required. The training script reads all `.txt` files, sorts and joins their contents with blank lines, then uses the first 90% of the resulting byte stream for training and the last 10% for validation. Both portions must be longer than `block_size`. This is a simple holdout by corpus position, not a random or document-level split; closely related passages may therefore appear in both portions. Training displays batch progress and reports training and validation loss after every epoch. Early stopping monitors validation loss, stops after 3 epochs without improvement by default, and restores the best model weights before saving the checkpoint. Adjust `early_stopping_patience` and `early_stopping_min_delta` in `configs/train_config.yaml` to tune this behaviour. The script does not currently create a processed dataset or deduplicate files for you, so curate the raw files before training.
 
 ## Training
 
@@ -66,7 +66,7 @@ After adding data to `data/raw/`, run this command from the project root:
 python -m src.train
 ```
 
-The command reads `configs/model_config.yaml` and `configs/train_config.yaml`, creates a validation split when the corpus is large enough, and saves the weights to `checkpoints/model.pt`. You can reduce `block_size`, `d_model`, `n_layers` or `batch_size` in the YAML files to experiment on a machine with limited resources. By default, `device: auto` selects CUDA when available and otherwise uses the CPU.
+The command reads `configs/model_config.yaml` and `configs/train_config.yaml`, creates a validation split when the corpus is large enough, and saves the weights to `checkpoints/model.pt`. Text files are memory-mapped, samples are converted to tensors on demand, and training uses a bounded shuffle buffer, so neither the corpus nor a full-dataset index permutation is copied into RAM. You can reduce `block_size`, `d_model`, `n_layers` or `batch_size` in the YAML files to experiment on a machine with limited resources. By default, `device: auto` selects CUDA when available and otherwise uses the CPU.
 
 ## Generating text
 

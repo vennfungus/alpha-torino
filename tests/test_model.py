@@ -1,7 +1,15 @@
 import pytest
 import torch
 
-from src.dataset import CausalLMDataset, decode_tokens, encode_text, load_raw_corpus
+from src.dataset import (
+    BufferedShuffleSampler,
+    CausalLMDataset,
+    MappedByteCorpus,
+    MappedCausalLMDataset,
+    decode_tokens,
+    encode_text,
+    load_raw_corpus,
+)
 from src.inference import generate
 from src.model import CausalLanguageModel
 
@@ -31,6 +39,35 @@ def test_dataset_pairs_each_token_with_its_next_token() -> None:
 
     assert input_ids.tolist() == [1, 2]
     assert targets.tolist() == [2, 3]
+
+
+def test_mapped_corpus_preserves_trimmed_joined_text_and_samples(tmp_path) -> None:
+    (tmp_path / "first.txt").write_text("\u2003Xin chào\u2003", encoding="utf-8")
+    (tmp_path / "second.txt").write_text("  Thế giới  ", encoding="utf-8")
+    expected = "Xin chào\n\nThế giới".encode("utf-8")
+
+    with MappedByteCorpus(tmp_path) as corpus:
+        assert corpus.byte_length == len(expected)
+        assert corpus.read(0, corpus.byte_length) == expected
+
+        dataset = MappedCausalLMDataset(
+            corpus,
+            start=0,
+            end=corpus.byte_length,
+            block_size=5,
+        )
+        input_ids, target_ids = dataset[0]
+
+    assert bytes(input_ids.tolist()) == expected[:5]
+    assert bytes(target_ids.tolist()) == expected[1:6]
+
+
+def test_buffered_shuffle_sampler_visits_every_sample_once() -> None:
+    dataset = CausalLMDataset(torch.arange(20), block_size=2)
+    sample_indices = list(BufferedShuffleSampler(dataset, buffer_size=4))
+
+    assert len(sample_indices) == len(dataset)
+    assert sorted(sample_indices) == list(range(len(dataset)))
 
 
 def test_utf8_byte_tokenizer_round_trips_vietnamese_text() -> None:
