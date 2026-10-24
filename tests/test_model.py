@@ -6,6 +6,7 @@ from src.dataset import (
     CausalLMDataset,
     MappedByteCorpus,
     MappedCausalLMDataset,
+    RandomSubsetSampler,
     decode_tokens,
     encode_text,
     load_raw_corpus,
@@ -62,12 +63,40 @@ def test_mapped_corpus_preserves_trimmed_joined_text_and_samples(tmp_path) -> No
     assert bytes(target_ids.tolist()) == expected[1:6]
 
 
+def test_mapped_corpus_can_be_reopened_in_a_data_loader_worker(tmp_path) -> None:
+    from torch.utils.data import DataLoader
+
+    (tmp_path / "corpus.txt").write_text("abcdefghijklmnopqrstuvwxyz", encoding="utf-8")
+    with MappedByteCorpus(tmp_path) as corpus:
+        dataset = MappedCausalLMDataset(
+            corpus,
+            start=0,
+            end=corpus.byte_length,
+            block_size=4,
+        )
+        batches = DataLoader(dataset, batch_size=2, num_workers=1)
+
+        inputs, targets = next(iter(batches))
+
+    assert inputs.shape == (2, 4)
+    assert targets.shape == (2, 4)
+
+
 def test_buffered_shuffle_sampler_visits_every_sample_once() -> None:
     dataset = CausalLMDataset(torch.arange(20), block_size=2)
     sample_indices = list(BufferedShuffleSampler(dataset, buffer_size=4))
 
     assert len(sample_indices) == len(dataset)
     assert sorted(sample_indices) == list(range(len(dataset)))
+
+
+def test_random_subset_sampler_returns_unique_capped_indices() -> None:
+    dataset = CausalLMDataset(torch.arange(100), block_size=2)
+    sample_indices = list(RandomSubsetSampler(dataset, num_samples=10))
+
+    assert len(sample_indices) == 10
+    assert len(set(sample_indices)) == 10
+    assert all(0 <= index < len(dataset) for index in sample_indices)
 
 
 def test_utf8_byte_tokenizer_round_trips_vietnamese_text() -> None:

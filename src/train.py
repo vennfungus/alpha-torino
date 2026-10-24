@@ -2,6 +2,7 @@
 
 import argparse
 from collections.abc import Iterable
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -9,7 +10,12 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from .dataset import BufferedShuffleSampler, MappedByteCorpus, MappedCausalLMDataset
+from .dataset import (
+    BufferedShuffleSampler,
+    MappedByteCorpus,
+    MappedCausalLMDataset,
+    RandomSubsetSampler,
+)
 from .model import CausalLanguageModel
 
 
@@ -36,6 +42,7 @@ def train_model(
     patience: int = 2,
     min_delta: float = 0.0,
     device: torch.device | str = "cpu",
+    use_bfloat16: bool = False,
 ) -> list[tuple[float, float]]:
     """Train and validate each epoch, returning train and validation losses."""
     if epochs < 1:
@@ -45,6 +52,7 @@ def train_model(
     if min_delta < 0:
         raise ValueError("min_delta must not be negative")
 
+    device = torch.device(device)
     model.to(device)
     epoch_losses = []
     best_validation_loss = float("inf")
@@ -60,10 +68,11 @@ def train_model(
             leave=False,
         )
         for input_ids, targets in train_progress:
-            input_ids = input_ids.to(device)
-            targets = targets.to(device)
+            input_ids = input_ids.to(device, non_blocking=device.type == "cuda")
+            targets = targets.to(device, non_blocking=device.type == "cuda")
             optimizer.zero_grad(set_to_none=True)
-            _, loss = model(input_ids, targets)
+            with _autocast_context(device, use_bfloat16):
+                _, loss = model(input_ids, targets)
             if loss is None:
                 raise RuntimeError("Model did not return a loss for labelled input")
             loss.backward()
@@ -86,8 +95,12 @@ def train_model(
         )
         with torch.no_grad():
             for input_ids, targets in validation_progress:
-                targets = targets.to(device)
-                _, loss = model(input_ids.to(device), targets)
+                targets = targets.to(device, non_blocking=device.type == "cuda")
+                with _autocast_context(device, use_bfloat16):
+                    _, loss = model(
+                        input_ids.to(device, non_blocking=device.type == "cuda"),
+                        targets,
+                    )
                 if loss is None:
                     raise RuntimeError("Model did not return a validation loss")
                 token_count = targets.numel()
@@ -126,6 +139,15 @@ def train_model(
     return epoch_losses
 
 
+def _autocast_context(
+    device: torch.device | str,
+    use_bfloat16: bool,
+) -> torch.autocast | nullcontext:
+    if use_bfloat16 and torch.device(device).type == "cuda":
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    return nullcontext()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a byte-level causal language model.")
     parser.add_argument("--data-dir", type=Path, default=Path("data/raw"))
@@ -142,14 +164,23 @@ def main() -> None:
         raise ValueError("The UTF-8 byte tokenizer requires vocab_size: 256")
     block_size = model_config["block_size"]
     batch_size = train_config["batch_size"]
+    num_workers = train_config.get("num_workers", 0)
     if block_size < 1 or batch_size < 1:
         raise ValueError("block_size and batch_size must be at least 1")
+    if num_workers < 0:
+        raise ValueError("num_workers must not be negative")
 
     device_setting = train_config.get("device", "auto")
     if device_setting == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         device = torch.device(device_setting)
+    use_bfloat16 = train_config.get("mixed_precision", True)
+    if not isinstance(use_bfloat16, bool):
+        raise ValueError("mixed_precision must be a boolean")
+    use_bfloat16 = use_bfloat16 and device.type == "cuda" and torch.cuda.is_bf16_supported()
+    if device.type == "cuda":
+        torch.set_float32_matmul_precision("high")
 
     architecture = {
         "vocab_size": 256,
@@ -187,6 +218,10 @@ def main() -> None:
             train_dataset,
             batch_size=batch_size,
             sampler=BufferedShuffleSampler(train_dataset),
+            num_workers=num_workers,
+            pin_memory=device.type == "cuda",
+            persistent_workers=num_workers > 0,
+            prefetch_factor=2 if num_workers > 0 else None,
         )
         validation_dataset = MappedCausalLMDataset(
             corpus,
@@ -194,7 +229,34 @@ def main() -> None:
             end=corpus.byte_length,
             block_size=block_size,
         )
-        validation_loader = DataLoader(validation_dataset, batch_size=batch_size)
+        validation_samples = train_config.get("validation_samples_per_epoch")
+        if validation_samples is None:
+            validation_loader = DataLoader(
+                validation_dataset,
+                batch_size=batch_size,
+                num_workers=num_workers,
+                pin_memory=device.type == "cuda",
+                persistent_workers=num_workers > 0,
+                prefetch_factor=2 if num_workers > 0 else None,
+            )
+        else:
+            if (
+                not isinstance(validation_samples, int)
+                or isinstance(validation_samples, bool)
+                or validation_samples < 1
+            ):
+                raise ValueError(
+                    "validation_samples_per_epoch must be a positive integer or null"
+                )
+            validation_loader = DataLoader(
+                validation_dataset,
+                batch_size=batch_size,
+                sampler=RandomSubsetSampler(validation_dataset, validation_samples),
+                num_workers=num_workers,
+                pin_memory=device.type == "cuda",
+                persistent_workers=num_workers > 0,
+                prefetch_factor=2 if num_workers > 0 else None,
+            )
 
         print(
             f"Training on {len(corpus.files)} text file(s), "
@@ -209,6 +271,7 @@ def main() -> None:
             patience=train_config.get("early_stopping_patience", 2),
             min_delta=train_config.get("early_stopping_min_delta", 0.0),
             device=device,
+            use_bfloat16=use_bfloat16,
         )
 
         checkpoint_path = Path(train_config["checkpoint_path"])

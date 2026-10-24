@@ -1,8 +1,11 @@
-batch_size: 32
+batch_size: 1280
+num_workers: 8
+mixed_precision: true
 learning_rate: 0.0003
 epochs: 10
-early_stopping_patience: 3
+early_stopping_patience: 2
 early_stopping_min_delta: 0.0
+validation_samples_per_epoch: 10000
 weight_decay: 0.01
 device: auto
 checkpoint_path: checkpoints/model.pt

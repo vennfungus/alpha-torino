@@ -15,8 +15,13 @@ from torch.utils.data import Dataset, Sampler
 class MappedByteCorpus:
     """Expose sorted text files as one memory-mapped UTF-8 byte stream."""
 
-    def __init__(self, raw_dir: str | Path) -> None:
+    def __init__(
+        self,
+        raw_dir: str | Path,
+        validate_utf8: bool = True,
+    ) -> None:
         raw_path = Path(raw_dir)
+        self.raw_dir = raw_path
         files = sorted(raw_path.rglob("*.txt"))
         if not files:
             raise FileNotFoundError(f"No .txt files found in {raw_path}")
@@ -39,7 +44,8 @@ class MappedByteCorpus:
                 mapped_file = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
                 self._handles.append(handle)
                 self._maps.append(mapped_file)
-                self._validate_utf8(mapped_file)
+                if validate_utf8:
+                    self._validate_utf8(mapped_file)
                 start, end = self._trim_bounds(mapped_file)
                 if start == end:
                     continue
@@ -128,6 +134,12 @@ class MappedByteCorpus:
 
     def __enter__(self) -> "MappedByteCorpus":
         return self
+
+    def __getstate__(self) -> dict[str, str]:
+        return {"raw_dir": str(self.raw_dir)}
+
+    def __setstate__(self, state: dict[str, str]) -> None:
+        self.__init__(state["raw_dir"], validate_utf8=False)
 
     def __exit__(
         self,
@@ -239,6 +251,22 @@ class BufferedShuffleSampler(Sampler[int]):
             next_index += 1
         random.shuffle(buffer)
         yield from buffer
+
+    def __len__(self) -> int:
+        return self.num_samples
+
+
+class RandomSubsetSampler(Sampler[int]):
+    """Sample a bounded number of unique indices without permuting the dataset."""
+
+    def __init__(self, data_source: Dataset, num_samples: int) -> None:
+        if num_samples < 1:
+            raise ValueError("num_samples must be at least 1")
+        self.dataset_size = len(data_source)
+        self.num_samples = min(num_samples, self.dataset_size)
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(random.sample(range(self.dataset_size), self.num_samples))
 
     def __len__(self) -> int:
         return self.num_samples

@@ -12,6 +12,7 @@ env/
 # Local datasets and model weights
 /data/
 /checkpoints/
+/scripts/
 
 # Notebook outputs
 .ipynb_checkpoints/
