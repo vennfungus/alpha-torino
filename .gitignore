@@ -10,11 +10,8 @@ env/
 .vscode/
 
 # Local datasets and model weights
-data/*
-!data/**/
-!data/**/.gitkeep
-checkpoints/*
-!checkpoints/.gitkeep
+data/
+checkpoints/
 
 # Notebook outputs
 .ipynb_checkpoints/
