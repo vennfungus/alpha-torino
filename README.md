@@ -80,6 +80,8 @@ python -m src.train
 
 The command reads `configs/model_config.yaml` and `configs/train_config.yaml`, creates a validation split when the corpus is large enough, and saves the weights to `checkpoints/model.pt`. Text files are memory-mapped, samples are converted to tensors on demand, and training uses a bounded shuffle buffer, so neither the corpus nor a full-dataset index permutation is copied into RAM. On CUDA, training uses bfloat16 mixed precision when supported, pinned batches and four data-loading workers by default. Reduce `batch_size` or `num_workers` if system memory is limited; increase them gradually only after checking GPU and system-memory use. Validation evaluates a random subset of 10,000 examples per epoch by default; set `validation_samples_per_epoch: null` to evaluate the full validation split. You can also reduce `block_size`, `d_model` or `n_layers` in the YAML files to experiment on a machine with limited resources. By default, `device: auto` selects CUDA when available and otherwise uses the CPU.
 
+After training, a loss-curve chart of the per-epoch training and validation loss is saved next to the checkpoint as `checkpoints/loss_curve.png` (path configurable via `loss_plot_path` in `configs/train_config.yaml`), so overfitting or underfitting can be spotted at a glance.
+
 ## Generating text
 
 ```powershell

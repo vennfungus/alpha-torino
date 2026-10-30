@@ -94,6 +94,25 @@ Training details (`src/train.py`, tuned via `configs/train_config.yaml`):
 - **Early stopping** monitors validation loss: training stops after `early_stopping_patience` (default 3) epochs without an improvement of at least `early_stopping_min_delta`, and the weights from the *best* validation epoch are restored before the checkpoint is saved. This protects against the small model overfitting or memorising a limited corpus.
 - On CUDA, training uses bfloat16 mixed precision when the GPU supports it, plus pinned-memory batches and parallel data-loading workers, to speed up stepping without changing the algorithm.
 
+## Visualising the loss curves
+
+`src/train.py` already computes and returns one `(train_loss, validation_loss)` pair per epoch — the same numbers that drive early stopping. `src/visualize.py` turns that history into a chart so the optimisation can be judged at a glance without re-reading the console output.
+
+The logic is deliberately small:
+
+1. **Input is the loss history, not new measurement.** `train_model` accumulates a *token-weighted* loss per epoch: every batch contributes `loss.item() × token_count`, and the epoch loss is the sum divided by the total tokens (`train_loss = total_loss / total_tokens`). Weighting by token count keeps the epoch average correct even when the last batch is smaller than `batch_size`. `plot_loss_curves` receives exactly this list, so the chart and the early-stopping decision are always based on the same numbers.
+2. **One figure, two series.** The function unpacks the pairs into parallel `train` and `validation` lists and plots them against the epoch number (`1 … N`) on one axis. Plotting both on the same axes is what makes the diagnostic possible: the *gap* between the curves carries the information.
+3. **Headless rendering.** The module sets the `Agg` backend before importing `pyplot`, so the plot is written straight to disk on servers or CI machines with no display, and `plt.close(figure)` releases the figure afterwards. The output path defaults to `checkpoints/loss_curve.png` (overridable via `loss_plot_path` in `configs/train_config.yaml`) and is written after the checkpoint, so a failed plotting step can never cost the model weights.
+
+Reading the chart:
+
+- **Healthy:** both curves fall together and converge — the model is fitting the corpus, not memorising the training half.
+- **Overfitting:** training loss keeps falling while validation loss turns upward — the divergence point is roughly where the best checkpoint was taken.
+- **Underfitting:** both curves plateau early at a high value — the model lacks capacity (`d_model`, `n_layers`) or the corpus lacks usable signal; more epochs will not help.
+- **Early stopping in the picture:** the last epoch on the chart is where the patience-based stop fired; the minimum of the validation curve corresponds to the restored checkpoint.
+
+The visualisation is descriptive, not part of the algorithm: removing it changes nothing about training, early stopping or the checkpoint.
+
 ## Text generation
 
 Generation (`generate` in `src/inference.py`) is **autoregressive sampling**:
@@ -122,4 +141,5 @@ Because generation re-runs the full forward pass on the context window at every 
 | Bounded shuffle             | `src/dataset.py` — `BufferedShuffleSampler`              |
 | Model and causal mask       | `src/model.py` — `CausalLanguageModel.forward`           |
 | Loss and early stopping     | `src/train.py`                                           |
+| Loss-curve plot             | `src/visualize.py` — `plot_loss_curves`                  |
 | Autoregressive sampling     | `src/inference.py` — `generate`                          |

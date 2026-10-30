@@ -17,6 +17,7 @@ from .dataset import (
     RandomSubsetSampler,
 )
 from .model import CausalLanguageModel
+from .visualize import plot_loss_curves
 
 
 def split_tokens(
@@ -262,7 +263,7 @@ def main() -> None:
             f"Training on {len(corpus.files)} text file(s), "
             f"{corpus.byte_length} UTF-8 bytes, device={device}"
         )
-        train_model(
+        epoch_losses = train_model(
             model,
             train_loader,
             optimizer,
@@ -285,6 +286,10 @@ def main() -> None:
             checkpoint_path,
         )
         print(f"Saved checkpoint to {checkpoint_path}")
+
+        plot_path = Path(train_config.get("loss_plot_path", "checkpoints/loss_curve.png"))
+        plot_loss_curves(epoch_losses, plot_path)
+        print(f"Saved loss curve plot to {plot_path}")
 
 
 if __name__ == "__main__":
