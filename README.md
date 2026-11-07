@@ -20,7 +20,8 @@ Python 3.10 or later is required. Create a virtual environment and install the d
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python.exe -m pip install --upgrade pip
+python.exe -m pip install -r requirements.txt
 ```
 
 ## Preparing data
@@ -63,10 +64,10 @@ No manual labels or train/validation folders are required. The training script r
 To create a reproducible subset of complete stories from the TinyStories corpus without changing the original file, run:
 
 ```powershell
-python scripts/create_tinystories_subset.py
+python scripts/download_tinystories.py
 ```
 
-This samples complete stories across `data/venn/TinyStories-train.txt` into `data/processed/TinyStories-100MB.txt` (about 100 MiB) without loading the full corpus into RAM. Paths are based on the project directory, so the command also works when run as `python -m scripts.create_tinystories_subset`. Use `--size-mib` to choose another target size or `--seed` to choose another repeatable sample. Train on the subset by passing its directory explicitly:
+This one command should used in case that have no personal data. In fact, the main-branch-model used these one (in the first version) to build and config parametors
 
 ```powershell
 python -m src.train --data-dir data/processed
