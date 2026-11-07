@@ -9,10 +9,9 @@ env/
 .idea/
 .vscode/
 
-# Local datasets and model weights
-/data/
-/checkpoints/
-/scripts/
+# Local datasets and model checkpoints
+data/
+checkpoints/
 
 # Notebook outputs
 .ipynb_checkpoints/
