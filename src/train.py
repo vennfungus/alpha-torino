@@ -154,6 +154,7 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=Path("data/raw"))
     parser.add_argument("--model-config", type=Path, default=Path("configs/model_config.yaml"))
     parser.add_argument("--train-config", type=Path, default=Path("configs/train_config.yaml"))
+    parser.add_argument("--checkpoint-path", type=Path, default=Path("checkpoints/model.pt"))
     args = parser.parse_args()
 
     model_config = yaml.safe_load(args.model_config.read_text(encoding="utf-8"))
