@@ -276,7 +276,7 @@ def main() -> None:
             use_bfloat16=use_bfloat16,
         )
 
-        checkpoint_path = Path(train_config["checkpoint_path"])
+        checkpoint_path = args.checkpoint_path
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(
             {
