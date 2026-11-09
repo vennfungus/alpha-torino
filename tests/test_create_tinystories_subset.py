@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.create_tinystories_subset import create_subset
+from scripts.download_tinystories import create_subset
 
 
 def test_create_subset_preserves_stories_and_source(tmp_path) -> None:
