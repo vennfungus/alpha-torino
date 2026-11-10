@@ -1,7 +1,7 @@
 """Training loop for a causal language model."""
 
 import argparse
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -44,6 +44,11 @@ def train_model(
     min_delta: float = 0.0,
     device: torch.device | str = "cpu",
     use_bfloat16: bool = False,
+    end_epoch: Callable[
+        [int, CausalLanguageModel, torch.optim.Optimizer, list[tuple[float, float]]],
+        None,
+    ]
+    | None = None,
 ) -> list[tuple[float, float]]:
     """Train and validate each epoch, returning train and validation losses."""
     if epochs < 1:
@@ -128,12 +133,16 @@ def train_model(
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
-            if epochs_without_improvement >= patience:
-                print(
-                    f"Early stopping after {epoch} epoch(s); "
-                    f"best validation loss: {best_validation_loss:.4f}"
-                )
-                break
+
+        if end_epoch is not None:
+            end_epoch(epoch, model, optimizer, epoch_losses)
+
+        if epochs_without_improvement >= patience:
+            print(
+                f"Early stopping after {epoch} epoch(s); "
+                f"best validation loss: {best_validation_loss:.4f}"
+            )
+            break
     if best_model_state is None:
         raise RuntimeError("Training completed without a best model checkpoint")
     model.load_state_dict(best_model_state)
@@ -264,6 +273,36 @@ def main() -> None:
             f"Training on {len(corpus.files)} text file(s), "
             f"{corpus.byte_length} UTF-8 bytes, device={device}"
         )
+
+        checkpoint_path = args.checkpoint_path
+        latest_checkpoint_path = checkpoint_path.with_name(
+            f"{checkpoint_path.stem}.latest{checkpoint_path.suffix}"
+        )
+
+        def save_epoch_checkpoint(
+            epoch: int,
+            current_model: CausalLanguageModel,
+            current_optimizer: torch.optim.Optimizer,
+            losses: list[tuple[float, float]],
+        ) -> None:
+            latest_checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path = latest_checkpoint_path.with_suffix(
+                latest_checkpoint_path.suffix + ".tmp"
+            )
+            torch.save(
+                {
+                    "model_state_dict": current_model.state_dict(),
+                    "optimizer_state_dict": current_optimizer.state_dict(),
+                    "model_config": architecture,
+                    "tokenizer": "utf8_bytes",
+                    "completed_epoch": epoch,
+                    "epoch_losses": losses,
+                },
+                temporary_path,
+            )
+            temporary_path.replace(latest_checkpoint_path)
+            print(f"Saved epoch {epoch} checkpoint to {latest_checkpoint_path}")
+
         epoch_losses = train_model(
             model,
             train_loader,
@@ -274,9 +313,9 @@ def main() -> None:
             min_delta=train_config.get("early_stopping_min_delta", 0.0),
             device=device,
             use_bfloat16=use_bfloat16,
+            end_epoch=save_epoch_checkpoint,
         )
 
-        checkpoint_path = args.checkpoint_path
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(
             {
