@@ -1,5 +1,5 @@
 vocab_size: 256
-block_size: 128
+block_size: 256
 d_model: 128
 n_heads: 4
 n_layers: 4
