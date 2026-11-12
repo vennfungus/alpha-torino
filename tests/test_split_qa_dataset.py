@@ -84,7 +84,7 @@ def test_split_qa_dataset_end_to_end_cleans_and_splits(tmp_path: Path) -> None:
 
     counts = split_qa_dataset.split_qa_dataset(source, tmp_path, validation_ratio=0.25, seed=42)
 
-    assert counts == {"train.jsonl": 6, "validation.jsonl": 2}
+    assert counts == {"train.jsonl": 4, "validation.jsonl": 4}
     train_records = read_jsonl(tmp_path / "train.jsonl")
     val_records = read_jsonl(tmp_path / "validation.jsonl")
 
@@ -109,6 +109,13 @@ def test_split_qa_dataset_raises_when_nothing_usable(tmp_path: Path) -> None:
     source = write_input(tmp_path, [{"context": "", "question": "", "answer": ""}])
 
     with pytest.raises(RuntimeError, match="No usable QA examples"):
+        split_qa_dataset.split_qa_dataset(source, tmp_path)
+
+
+def test_split_qa_dataset_rejects_single_document_without_validation(tmp_path: Path) -> None:
+    source = write_input(tmp_path, doc("Only context", 3))
+
+    with pytest.raises(ValueError, match="at least two distinct contexts"):
         split_qa_dataset.split_qa_dataset(source, tmp_path)
 
 

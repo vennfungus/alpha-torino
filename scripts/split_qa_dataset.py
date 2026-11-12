@@ -41,33 +41,39 @@ def split_documents(
     validation_ratio: float = DEFAULT_VALIDATION_RATIO,
     seed: int = 42,
 ) -> tuple[list[dict], list[dict]]:
-    """Shuffle documents and split them so validation holds ~validation_ratio of records.
-
-    The split is at document level: whole contexts move together. With very
-    small datasets one document may overshoot the ratio slightly; that is
-    accepted to guarantee MIN_TRAIN_DOCUMENTS in train.
-    """
+    """Split whole contexts, approximating the requested validation record ratio."""
     if not 0 < validation_ratio < 1:
         raise ValueError("validation_ratio must be strictly between 0 and 1")
 
     documents = group_by_document(records)
-    contexts = sorted(documents)  # sorted for reproducibility before shuffling
+    contexts = sorted(documents)
     rng = random.Random(seed)
     rng.shuffle(contexts)
+    contexts.sort(key=lambda context: len(documents[context]), reverse=True)
 
     total_records = len(records)
-    validation_records: list[dict] = []
-    train_records: list[dict] = []
-
+    validation_target = max(1, round(total_records * validation_ratio))
+    validation_contexts: set[str] = set()
+    validation_count = 0
     for context in contexts:
-        bucket = documents[context]
         if (
-            len(train_records) >= MIN_TRAIN_DOCUMENTS
-            and (len(validation_records) + len(bucket)) / total_records <= validation_ratio
+            validation_count + len(documents[context]) <= validation_target
+            and len(validation_contexts) < len(contexts) - MIN_TRAIN_DOCUMENTS
         ):
-            validation_records.extend(bucket)
-        else:
-            train_records.extend(bucket)
+            validation_contexts.add(context)
+            validation_count += len(documents[context])
+
+    if len(contexts) > MIN_TRAIN_DOCUMENTS and not validation_contexts:
+        smallest_context = min(contexts, key=lambda context: len(documents[context]))
+
+        validation_contexts.add(smallest_context)
+
+    validation_records = [
+        record for record in records if record["context"] in validation_contexts
+    ]
+    train_records = [
+        record for record in records if record["context"] not in validation_contexts
+    ]
 
     return train_records, validation_records
 
@@ -86,9 +92,12 @@ def split_qa_dataset(
             if not line:
                 continue
             try:
-                raw_records.append(json.loads(line))
+                record = json.loads(line)
             except json.JSONDecodeError as error:
                 raise ValueError(f"Invalid JSON on line {line_number} of {input_path}") from error
+            if not isinstance(record, dict):
+                raise ValueError(f"Expected a JSON object on line {line_number} of {input_path}")
+            raw_records.append(record)
 
     stats = Counter(empty=0, duplicate=0)
     cleaned: list[dict] = []
@@ -96,10 +105,15 @@ def split_qa_dataset(
 
     for record in raw_records:
         # Empty-field check.
-        if not all(str(record.get(field, "")).strip() for field in ("context", "question", "answer")):
+        if not all(
+            isinstance(record.get(field), str) and record[field].strip()
+            for field in ("context", "question", "answer")
+        ):
             stats["empty"] += 1
             continue
-        cleaned.append({field: str(record[field]).strip() for field in ("context", "question", "answer")})
+        cleaned.append(
+            {field: record[field].strip() for field in ("context", "question", "answer")}
+        )
 
     # Global deduplication BEFORE splitting, so identical rows can never leak
     # across the train/validation boundary.
@@ -114,15 +128,22 @@ def split_qa_dataset(
 
     if not deduplicated:
         raise RuntimeError(f"No usable QA examples found in {input_path}")
+    stats["kept"] = len(deduplicated)
 
     train_records, validation_records = split_documents(
         deduplicated, validation_ratio=validation_ratio, seed=seed
     )
+    if not validation_records:
+        raise ValueError(
+            "A document-level validation split requires at least two distinct contexts"
+        )
 
     counts: dict[str, int] = {}
     for name, records in (("train.jsonl", train_records), ("validation.jsonl", validation_records)):
         write_jsonl(records, output_dir / name)
-        print(format_stats(name, stats, records))
+        split_stats = Counter(stats)
+        split_stats["kept"] = len(records)
+        print(format_stats(name, split_stats, records))
         counts[name] = len(records)
 
     return counts

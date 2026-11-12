@@ -1,4 +1,4 @@
-# src.measure
+# src.measure_gen
 
 """Standalone metrics logger: 
     validation loss, perplexity, checkpoint size, inference speed."""

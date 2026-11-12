@@ -52,7 +52,7 @@ The number of examples is `length_of_stream − block_size`: one example per pos
 
 Because materialising a full permutation of millions of example indices would need a lot of memory, training shuffles indices with `BufferedShuffleSampler`: it keeps a reservoir-style buffer of `buffer_size` pending indices (100 000 by default), repeatedly emits one index chosen uniformly at random from the buffer and refills that slot with the next unused index. This gives good local randomness with `O(buffer_size)` memory instead of `O(dataset_size)`.
 
-Validation uses `RandomSubsetSampler`, which draws a fixed number of unique indices via `random.sample` — again avoiding a full permutation — so each epoch validates on a random subset (10 000 examples by default) rather than the whole split.
+Validation uses `RandomSubsetSampler`, which draws a fixed number of unique indices via `random.sample` — again avoiding a full permutation — so each epoch validates on a random subset (5,000 examples by default) rather than the whole split.
 
 ## Model architecture
 
@@ -136,7 +136,7 @@ The sequence is shifted by one byte as in language modelling, but targets before
 ## Complexity summary
 
 - **Parameters** are dominated by the embedding tables (`256 × d_model` and `block_size × d_model`) and the per-block matrices; with the defaults the model is on the order of hundreds of thousands of parameters — small enough to train on a CPU.
-- **Attention** within a block is `O(block_size²)` in sequence length, which is why `block_size: 128` keeps training cheap.
+- **Attention** within a block is `O(block_size²)` in sequence length. The generation default is 256 bytes; QA defaults to 1,024 bytes to retain more context.
 - **Memory** for the data pipeline is `O(corpus_files + buffer_size)` rather than `O(corpus_bytes)`, thanks to memory mapping and the bounded shuffle buffer.
 
 ## Pointers into the code

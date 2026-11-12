@@ -11,6 +11,6 @@ def test_exact_match_ignores_case_articles_and_punctuation() -> None:
 
 
 def test_token_f1_uses_multiset_overlap() -> None:
-    assert token_f1("the red red fox", "red fox") == 1.0
+    assert token_f1("the red red fox", "red fox") == 0.8
     assert token_f1("blue whale", "red fox") == 0.0
     assert token_f1("", "") == 1.0
