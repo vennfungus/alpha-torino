@@ -5,9 +5,9 @@ from pathlib import Path
 
 import torch
 
-from .dataset_gen import decode_tokens, encode_text
 from .format_qa import ANSWER_TERMINATOR, build_prompt
 from .model_qa import QALanguageModel
+from .tokenizer import decode_tokens, encode_text
 
 
 @torch.no_grad()

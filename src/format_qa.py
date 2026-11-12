@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 
-from .dataset_gen import encode_text
+from .tokenizer import encode_text
 
 ANSWER_TERMINATOR = b"\n\n"
 _CONTEXT_PREFIX = b"Context: "

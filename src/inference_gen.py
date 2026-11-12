@@ -5,8 +5,8 @@ from pathlib import Path
 
 import torch
 
-from .dataset_gen import decode_tokens, encode_text
 from .model_gen import CausalLanguageModel
+from .tokenizer import decode_tokens, encode_text
 
 
 @torch.no_grad()

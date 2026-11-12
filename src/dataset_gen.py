@@ -11,6 +11,8 @@ from types import TracebackType
 import torch
 from torch.utils.data import Dataset, Sampler
 
+from .tokenizer import decode_tokens, encode_text
+
 
 class MappedByteCorpus:
     """Expose sorted text files as one memory-mapped UTF-8 byte stream."""
@@ -148,18 +150,6 @@ class MappedByteCorpus:
         _traceback: TracebackType | None,
     ) -> None:
         self.close()
-
-
-def encode_text(text: str) -> list[int]:
-    """Encode text as UTF-8 byte IDs in the range 0-255."""
-    return list(text.encode("utf-8"))
-
-
-def decode_tokens(token_ids: list[int] | torch.Tensor) -> str:
-    """Decode UTF-8 byte IDs, replacing incomplete or invalid byte sequences."""
-    if isinstance(token_ids, torch.Tensor):
-        token_ids = token_ids.tolist()
-    return bytes(token_ids).decode("utf-8", errors="replace")
 
 
 def load_raw_corpus(raw_dir: str | Path) -> tuple[str, list[Path]]:

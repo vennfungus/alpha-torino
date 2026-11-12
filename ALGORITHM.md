@@ -1,23 +1,23 @@
 # Algorithm Guide
 
-This document explains how the project works internally: how text becomes training examples, what the model architecture is, how training works, and how text is generated. It is intended for readers who want to understand the algorithm rather than only run the commands. File and function names refer to the actual source code.
+This document explains the two training paths in the project: self-supervised text generation and supervised question answering. File and function names refer to the actual source code.
 
 ## Overview
 
-The project implements a small **decoder-only Transformer language model** trained from scratch with self-supervision. The learning task is *next-token prediction*: given a sequence of tokens, predict the token that follows at each position. No labels are used — the targets are simply the same byte stream shifted by one position.
+Both paths use a small **decoder-only Transformer language model** trained from scratch. The generation path is self-supervised next-token prediction; the QA path supplies context/question/answer records and masks loss so only answer bytes are targets.
 
 The full pipeline is:
 
-1. **Corpus construction** — sorted `.txt` files are joined into one virtual UTF-8 byte stream (`src/dataset.py`, `MappedByteCorpus`).
+1. **Corpus construction** — sorted `.txt` files are joined into one virtual UTF-8 byte stream (`src/dataset_gen.py`, `MappedByteCorpus`).
 2. **Tokenisation** — the byte stream is treated directly as token IDs in the range 0–255 (`encode_text`, byte-level tokeniser).
 3. **Example formation** — fixed-length windows are cut from the stream; inputs and targets are the same window shifted by one token (`CausalLMDataset`, `MappedCausalLMDataset`).
-4. **Modelling** — a decoder-only Transformer estimates a probability distribution over the next token (`src/model.py`, `CausalLanguageModel`).
-5. **Training** — cross-entropy minimisation with AdamW, early stopping on validation loss (`src/train.py`).
-6. **Generation** — autoregressive sampling: predict one token, append it, repeat (`src/inference.py`, `generate`).
+4. **Modelling** — a decoder-only Transformer estimates a probability distribution over the next token (`src/model_gen.py`).
+5. **Training** — generation uses shifted-corpus labels (`src/train_gen.py`); QA uses answer-only labels (`src/train_qa.py`).
+6. **Inference** — generation samples text (`src/inference_gen.py`); QA generates an answer conditioned on context and question (`src/inference_qa.py`).
 
 ## Tokenisation: UTF-8 bytes as tokens
 
-The tokeniser is deliberately trivial: every byte of the UTF-8 encoding of the text is one token. This gives a fixed vocabulary of 256 IDs (`vocab_size: 256` in `configs/model_config.yaml`).
+The tokeniser is deliberately trivial: every byte of the UTF-8 encoding of the text is one token. This gives a fixed vocabulary of 256 IDs (`vocab_size: 256` in `configs/model_config_gen.yaml` and `configs/model_config_qa.yaml`).
 
 - **Encoding** (`encode_text`) is `text.encode("utf-8")` viewed as a list of integers.
 - **Decoding** (`decode_tokens`) converts IDs back to bytes and decodes with `errors="replace"`, so incomplete or invalid byte sequences (which can occur when generation stops mid-character) do not crash the program.
@@ -56,12 +56,12 @@ Validation uses `RandomSubsetSampler`, which draws a fixed number of unique indi
 
 ## Model architecture
 
-`CausalLanguageModel` is a compact decoder-only Transformer (the GPT-style design), parameterised by `configs/model_config.yaml`:
+`CausalLanguageModel` is a compact decoder-only Transformer (the GPT-style design), parameterised for generation by `configs/model_config_gen.yaml` and for QA by `configs/model_config_qa.yaml`:
 
 | Parameter    | Default | Meaning                                     |
 |--------------|---------|---------------------------------------------|
 | `vocab_size` | 256     | Number of distinct tokens (one per byte)    |
-| `block_size` | 128     | Maximum context length the model can attend over |
+| `block_size` | 256 (generation), 1024 (QA) | Maximum byte context length the model can attend over |
 | `d_model`    | 128     | Width of the hidden representations         |
 | `n_heads`    | 4       | Attention heads per block                   |
 | `n_layers`   | 4       | Number of Transformer blocks                |
@@ -89,20 +89,20 @@ L = − (1 / N) · Σ  log p(target_t | tokens_0…t)
 
 computed in one flattened call to `nn.functional.cross_entropy` (`logits.reshape(-1, vocab_size)` against `targets.reshape(-1)`). Minimising it is maximum-likelihood estimation: the model increases the probability of the bytes that actually occur next in the corpus and decreases the probability of everything else. Because every position of every window contributes a training signal, one `block_size`-token window provides `block_size` supervised predictions.
 
-Training details (`src/train.py`, tuned via `configs/train_config.yaml`):
+Generation training details (`src/train_gen.py`, tuned via `configs/train_config_gen.yaml`):
 
 - **Early stopping** monitors validation loss: training stops after `early_stopping_patience` (default 3) epochs without an improvement of at least `early_stopping_min_delta`, and the weights from the *best* validation epoch are restored before the checkpoint is saved. This protects against the small model overfitting or memorising a limited corpus.
 - On CUDA, training uses bfloat16 mixed precision when the GPU supports it, plus pinned-memory batches and parallel data-loading workers, to speed up stepping without changing the algorithm.
 
 ## Visualising the loss curves
 
-`src/train.py` already computes and returns one `(train_loss, validation_loss)` pair per epoch — the same numbers that drive early stopping. `src/visualize.py` turns that history into a chart so the optimisation can be judged at a glance without re-reading the console output.
+`src/train_gen.py` computes and returns one `(train_loss, validation_loss)` pair per epoch — the same numbers that drive early stopping. `src/visualize_gen.py` turns that history into a chart so the optimisation can be judged at a glance without re-reading the console output.
 
 The logic is deliberately small:
 
 1. **Input is the loss history, not new measurement.** `train_model` accumulates a *token-weighted* loss per epoch: every batch contributes `loss.item() × token_count`, and the epoch loss is the sum divided by the total tokens (`train_loss = total_loss / total_tokens`). Weighting by token count keeps the epoch average correct even when the last batch is smaller than `batch_size`. `plot_loss_curves` receives exactly this list, so the chart and the early-stopping decision are always based on the same numbers.
 2. **One figure, two series.** The function unpacks the pairs into parallel `train` and `validation` lists and plots them against the epoch number (`1 … N`) on one axis. Plotting both on the same axes is what makes the diagnostic possible: the *gap* between the curves carries the information.
-3. **Headless rendering.** The module sets the `Agg` backend before importing `pyplot`, so the plot is written straight to disk on servers or CI machines with no display, and `plt.close(figure)` releases the figure afterwards. The output path defaults to `checkpoints/loss_curve.png` (overridable via `loss_plot_path` in `configs/train_config.yaml`) and is written after the checkpoint, so a failed plotting step can never cost the model weights.
+3. **Headless rendering.** The module sets the `Agg` backend before importing `pyplot`, so the plot is written straight to disk on servers or CI machines with no display, and `plt.close(figure)` releases the figure afterwards. The output path defaults to `checkpoints/loss_curve_gen.png` (overridable via `loss_plot_path` in `configs/train_config_gen.yaml`) and is written after the checkpoint, so a failed plotting step can never cost the model weights.
 
 Reading the chart:
 
@@ -115,7 +115,7 @@ The visualisation is descriptive, not part of the algorithm: removing it changes
 
 ## Text generation
 
-Generation (`generate` in `src/inference.py`) is **autoregressive sampling**:
+Generation (`generate` in `src/inference_gen.py`) is **autoregressive sampling**:
 
 1. The prompt is encoded to byte IDs and used as the initial context.
 2. At each step, the model is run on the last `block_size` tokens of the context (a sliding window — older tokens drop out of reach), and only the logits at the **final** position are kept, since that position's distribution is the prediction for the next token.
@@ -124,6 +124,14 @@ Generation (`generate` in `src/inference.py`) is **autoregressive sampling**:
 5. Steps 2–4 repeat for `max_new_tokens` steps, then the whole ID sequence — prompt plus generated bytes — is decoded back to text.
 
 Because generation re-runs the full forward pass on the context window at every step (there is no KV cache in this implementation), generation cost grows with context length but stays bounded by `block_size`.
+
+## Supervised QA path
+
+The QA input is one JSONL object per example with `context`, `question` and `answer` string fields. `src/dataset_qa.py` loads and validates the records, and `src/format_qa.py` creates the consistent `Context: … / Question: … / Answer: …` byte sequence. Long contexts are truncated to fit `block_size`; when the answer text occurs in the context, the retained context window is centred around it. The question is kept intact and must fit the configured context window.
+
+The sequence is shifted by one byte as in language modelling, but targets before the answer are set to PyTorch's ignored label `-100`. Right-padding also receives ignored labels. Consequently, the cross-entropy in `src/model_gen.py` trains the shared architecture to predict answer bytes and the `\n\n` answer terminator without spending loss on the context or question. `src/train_qa.py` optimises this objective and restores the checkpoint with the best validation loss.
+
+`src/inference_qa.py` accepts a context and question, then generates until the learned delimiter or the configured generation limit. `src/evaluate_qa.py` reports SQuAD-style exact match and token F1 on held-out examples. The QA pipeline is trained from scratch; byte-level modelling and the small architecture make it an educational baseline rather than a production QA model.
 
 ## Complexity summary
 
@@ -135,11 +143,14 @@ Because generation re-runs the full forward pass on the context window at every 
 
 | Concept                     | Where to look                                            |
 |-----------------------------|----------------------------------------------------------|
-| Virtual byte-stream corpus  | `src/dataset.py` — `MappedByteCorpus`                    |
-| Byte tokeniser              | `src/dataset.py` — `encode_text`, `decode_tokens`        |
-| Next-token examples         | `src/dataset.py` — `CausalLMDataset`, `MappedCausalLMDataset` |
-| Bounded shuffle             | `src/dataset.py` — `BufferedShuffleSampler`              |
-| Model and causal mask       | `src/model.py` — `CausalLanguageModel.forward`           |
-| Loss and early stopping     | `src/train.py`                                           |
-| Loss-curve plot             | `src/visualize.py` — `plot_loss_curves`                  |
-| Autoregressive sampling     | `src/inference.py` — `generate`                          |
+| Virtual byte-stream corpus  | `src/dataset_gen.py` — `MappedByteCorpus`                    |
+| Byte tokeniser              | `src/dataset_gen.py` — `encode_text`, `decode_tokens`        |
+| Next-token examples         | `src/dataset_gen.py` — `CausalLMDataset`, `MappedCausalLMDataset` |
+| Bounded shuffle             | `src/dataset_gen.py` — `BufferedShuffleSampler`              |
+| Shared model and causal mask| `src/model_gen.py` — `CausalLanguageModel.forward`           |
+| Generation training         | `src/train_gen.py`                                           |
+| QA dataset and answer mask   | `src/dataset_qa.py`, `src/format_qa.py`                      |
+| QA training/evaluation       | `src/train_qa.py`, `src/evaluate_qa.py`                      |
+| QA inference                 | `src/inference_qa.py`                                        |
+| Loss-curve plot              | `src/visualize_gen.py` — `plot_loss_curves`                  |
+| Autoregressive generation    | `src/inference_gen.py` — `generate`                          |

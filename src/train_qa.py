@@ -1,6 +1,7 @@
 """Supervised training entry point for context-and-question QA."""
 
 import argparse
+import math
 import random
 from collections.abc import Iterable
 from contextlib import nullcontext
@@ -130,6 +131,28 @@ def _positive_int(value: object, name: str) -> int:
     return value
 
 
+def _positive_float(value: object, name: str) -> float:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(f"{name} must be a positive finite number")
+    return float(value)
+
+
+def _nonnegative_float(value: object, name: str) -> float:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError(f"{name} must be a non-negative finite number")
+    return float(value)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train the supervised QA model.")
     parser.add_argument("--model-config", type=Path, default=Path("configs/model_config_qa.yaml"))
@@ -154,6 +177,14 @@ def main() -> None:
         raise ValueError("num_workers must be a non-negative integer")
     max_answer_bytes = _positive_int(
         train_config.get("max_answer_bytes", 128), "max_answer_bytes"
+    )
+    device_setting = train_config.get("device", "auto")
+    if not isinstance(device_setting, str):
+        raise ValueError("device must be 'auto' or a PyTorch device string")
+    device = (
+        torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if device_setting == "auto"
+        else torch.device(device_setting)
     )
 
     train_path = args.train_file or Path(train_config.get("train_file", "data/raw/train.jsonl"))
@@ -191,7 +222,7 @@ def main() -> None:
         "batch_size": batch_size,
         "num_workers": num_workers,
         "collate_fn": collate_qa_batch,
-        "pin_memory": train_config.get("device", "auto") != "cpu",
+        "pin_memory": device.type == "cuda",
         "persistent_workers": num_workers > 0,
     }
     if num_workers > 0:
@@ -208,12 +239,6 @@ def main() -> None:
         **loader_options,
     )
 
-    device_setting = train_config.get("device", "auto")
-    device = (
-        torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        if device_setting == "auto"
-        else torch.device(device_setting)
-    )
     mixed_precision = train_config.get("mixed_precision", True)
     if not isinstance(mixed_precision, bool):
         raise ValueError("mixed_precision must be a boolean")
@@ -221,19 +246,29 @@ def main() -> None:
         mixed_precision and device.type == "cuda" and torch.cuda.is_bf16_supported()
     )
 
+    dropout = model_config.get("dropout", 0.1)
+    if (
+        not isinstance(dropout, (int, float))
+        or isinstance(dropout, bool)
+        or not math.isfinite(dropout)
+        or not 0 <= dropout < 1
+    ):
+        raise ValueError("dropout must be a finite number in the range [0, 1)")
     architecture = {
         "vocab_size": 256,
         "block_size": block_size,
         "d_model": _positive_int(model_config.get("d_model"), "d_model"),
         "n_heads": _positive_int(model_config.get("n_heads"), "n_heads"),
         "n_layers": _positive_int(model_config.get("n_layers"), "n_layers"),
-        "dropout": model_config.get("dropout", 0.1),
+        "dropout": float(dropout),
     }
     model = QALanguageModel(**architecture)
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=train_config.get("learning_rate", 0.0001),
-        weight_decay=train_config.get("weight_decay", 0.0),
+        lr=_positive_float(train_config.get("learning_rate", 0.0001), "learning_rate"),
+        weight_decay=_nonnegative_float(
+            train_config.get("weight_decay", 0.0), "weight_decay"
+        ),
     )
     history = train_qa(
         model,
@@ -245,7 +280,10 @@ def main() -> None:
             train_config.get("early_stopping_patience", 3),
             "early_stopping_patience",
         ),
-        min_delta=train_config.get("early_stopping_min_delta", 0.0),
+        min_delta=_nonnegative_float(
+            train_config.get("early_stopping_min_delta", 0.0),
+            "early_stopping_min_delta",
+        ),
         device=device,
         use_bfloat16=use_bfloat16,
     )
