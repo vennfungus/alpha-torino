@@ -11,16 +11,16 @@ import yaml
 import torch
 from torch.utils.data import DataLoader
 
-from src.dataset import MappedByteCorpus, MappedCausalLMDataset
-from src.inference import generate
-from src.model import CausalLanguageModel
+from src.dataset_gen import MappedByteCorpus, MappedCausalLMDataset
+from src.inference_gen import generate
+from src.model_gen import CausalLanguageModel
 
 import csv
 from datetime import datetime
 
 def main() -> None:
-    model_config = yaml.safe_load(Path("configs/model_config.yaml").read_text(encoding="utf-8"))
-    train_config = yaml.safe_load(Path("configs/train_config.yaml").read_text(encoding="utf-8"))
+    model_config = yaml.safe_load(Path("configs/model_config_gen.yaml").read_text(encoding="utf-8"))
+    train_config = yaml.safe_load(Path("configs/train_config_gen.yaml").read_text(encoding="utf-8"))
 
     checkpoint_path = Path(train_config["checkpoint_path"])
     data_dir = Path("data/raw")

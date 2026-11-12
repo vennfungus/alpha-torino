@@ -1,6 +1,6 @@
-"""Plot training and validation loss curves from :func:`src.train.train_model`.
+"""Plot training and validation loss curves from :func:`src.train_gen.train_model`.
 
-The training loop in ``src/train.py`` already returns one ``(train_loss,
+The training loop in ``src/train_gen.py`` already returns one ``(train_loss,
 validation_loss)`` pair per epoch. This module turns that history into a PNG
 chart so overfitting (validation loss rising while training loss falls) or
 underfitting (both losses flat and high) can be judged at a glance.

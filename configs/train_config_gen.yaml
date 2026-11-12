@@ -8,4 +8,5 @@ early_stopping_min_delta: 0.0
 validation_samples_per_epoch: 5000
 weight_decay: 0.01
 device: auto
-checkpoint_path: checkpoints/model.pt
+checkpoint_path: checkpoints/model_gen.pt
+loss_plot_path: checkpoints/loss_curve_gen.png

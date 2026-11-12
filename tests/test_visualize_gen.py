@@ -1,9 +1,9 @@
 import pytest
 import torch
 
-from src.model import CausalLanguageModel
-from src.train import train_model
-from src.visualize import plot_loss_curves
+from src.model_gen import CausalLanguageModel
+from src.train_gen import train_model
+from src.visualize_gen import plot_loss_curves
 
 
 def test_plot_loss_curves_saves_a_png(tmp_path) -> None:

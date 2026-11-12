@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from src.dataset import (
+from src.dataset_gen import (
     BufferedShuffleSampler,
     CausalLMDataset,
     MappedByteCorpus,
@@ -11,8 +11,8 @@ from src.dataset import (
     encode_text,
     load_raw_corpus,
 )
-from src.inference import generate
-from src.model import CausalLanguageModel
+from src.inference_gen import generate
+from src.model_gen import CausalLanguageModel
 
 
 def test_model_returns_logits_and_loss() -> None:

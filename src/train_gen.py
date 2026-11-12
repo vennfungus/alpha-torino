@@ -10,14 +10,14 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from .dataset import (
+from .dataset_gen import (
     BufferedShuffleSampler,
     MappedByteCorpus,
     MappedCausalLMDataset,
     RandomSubsetSampler,
 )
-from .model import CausalLanguageModel
-from .visualize import plot_loss_curves
+from .model_gen import CausalLanguageModel
+from .visualize_gen import plot_loss_curves
 
 
 def split_tokens(
@@ -161,9 +161,9 @@ def _autocast_context(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a byte-level causal language model.")
     parser.add_argument("--data-dir", type=Path, default=Path("data/raw"))
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model_config.yaml"))
-    parser.add_argument("--train-config", type=Path, default=Path("configs/train_config.yaml"))
-    parser.add_argument("--checkpoint-path", type=Path, default=Path("checkpoints/model.pt"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model_config_gen.yaml"))
+    parser.add_argument("--train-config", type=Path, default=Path("configs/train_config_gen.yaml"))
+    parser.add_argument("--checkpoint-path", type=Path, default=Path("checkpoints/model_gen.pt"))
     args = parser.parse_args()
 
     model_config = yaml.safe_load(args.model_config.read_text(encoding="utf-8"))
@@ -327,7 +327,7 @@ def main() -> None:
         )
         print(f"Saved checkpoint to {checkpoint_path}")
 
-        plot_path = Path(train_config.get("loss_plot_path", "checkpoints/loss_curve.png"))
+        plot_path = Path(train_config.get("loss_plot_path", "checkpoints/loss_curve_gen.png"))
         plot_loss_curves(epoch_losses, plot_path)
         print(f"Saved loss curve plot to {plot_path}")
 

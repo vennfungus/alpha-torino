@@ -1,5 +1,6 @@
-"""Causal language model project source package."""
+"""Causal language modelling and question-answering project."""
 
-from .model import CausalLanguageModel
+from .model_gen import CausalLanguageModel
+from .model_qa import QALanguageModel
 
-__all__ = ["CausalLanguageModel"]
+__all__ = ["CausalLanguageModel", "QALanguageModel"]

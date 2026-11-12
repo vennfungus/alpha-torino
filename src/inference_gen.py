@@ -5,8 +5,8 @@ from pathlib import Path
 
 import torch
 
-from .dataset import decode_tokens, encode_text
-from .model import CausalLanguageModel
+from .dataset_gen import decode_tokens, encode_text
+from .model_gen import CausalLanguageModel
 
 
 @torch.no_grad()
@@ -40,7 +40,7 @@ def generate(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate text from a trained causal language model.")
     parser.add_argument("--prompt", required=True, help="Starting text for generation")
-    parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/model.pt"))
+    parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/model_gen.pt"))
     parser.add_argument("--max-new-tokens", type=int, default=200)
     parser.add_argument("--temperature", type=float, default=0.8)
     args = parser.parse_args()

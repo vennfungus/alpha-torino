@@ -2,7 +2,7 @@
 
 import torch
 
-from .model import CausalLanguageModel
+from .model_gen import CausalLanguageModel
 
 
 @torch.no_grad()

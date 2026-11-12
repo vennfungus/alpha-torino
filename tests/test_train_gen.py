@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from src.model import CausalLanguageModel
-from src.train import split_tokens, train_model
+from src.model_gen import CausalLanguageModel
+from src.train_gen import split_tokens, train_model
 
 
 class FixedValidationLossModel(torch.nn.Module):

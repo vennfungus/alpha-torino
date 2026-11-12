@@ -1,0 +1,14 @@
+train_file: data/raw/train.jsonl
+validation_file: data/raw/validation.jsonl
+batch_size: 8
+num_workers: 0
+max_answer_bytes: 128
+mixed_precision: true
+learning_rate: 0.0001
+epochs: 10
+early_stopping_patience: 3
+early_stopping_min_delta: 0.0
+validation_samples_per_epoch: 1000
+weight_decay: 0.01
+device: auto
+checkpoint_path: checkpoints/model_qa.pt

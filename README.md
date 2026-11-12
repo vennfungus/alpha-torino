@@ -1,21 +1,25 @@
-# Mini Causal Language Model
+# Mini Causal Language Model and QA
 
-A small autoregressive language model project built with PyTorch. The model is trained from scratch on the supplied data; it does not fine-tune a large pre-trained model.
+This repository contains two small, separate training pipelines built around the same byte-level causal Transformer:
+
+- **Text generation (`*_gen`)** trains on plain text using next-byte prediction.
+- **Question answering (`*_qa`)** trains on context/question/answer records and applies loss only to answer bytes.
+
+Both models are trained from scratch. The QA pipeline is useful for learning and experimenting with supervised QA; this small byte-level model is not a substitute for fine-tuning a capable pretrained model when answer quality matters.
 
 ## Project structure
 
-- `data/raw/`: original text data.
-- `data/processed/`: cleaned or tokenised data.
-- `data/external/`: data from external sources.
-- `notebooks/`: notebooks for data exploration and model experiments.
-- `src/`: dataset, model, training, evaluation and inference code.
-- `configs/`: model and training configuration.
-- `checkpoints/`: saved model weights; contents are excluded from Git.
+- `data/raw/`: source text and QA JSONL files.
+- `configs/`: separate `*_gen.yaml` and `*_qa.yaml` model/training settings.
+- `src/`: separate generation and QA datasets, trainers, evaluators and inference entry points.
+- `scripts/`: dataset download and personal QA split utilities.
+- `checkpoints/`: saved model weights.
 - `tests/`: automated tests.
+- `notebooks/`: generation-model experiments.
 
 ## Installation
 
-Python 3.10 or later is required. Create a virtual environment and install the dependencies:
+Python 3.10 or later is required:
 
 ```powershell
 py -m venv .venv
@@ -24,82 +28,58 @@ python.exe -m pip install --upgrade pip
 python.exe -m pip install -r requirements.txt
 ```
 
-## Preparing data
+## Text generation
 
-Place one or more UTF-8 encoded `.txt` files in `data/raw/`. You can organise them into subdirectories. For example:
-
-```text
-data/raw/
-├── emails.txt
-└── articles/
-    └── notes.txt
-```
-
-Use text representative of the style and subject matter you want the model to learn, such as your emails, notes or articles. The trained model will reflect patterns in its input data, including its wording, punctuation and formatting. It learns statistical patterns from the examples; it does not become the author or know things that are not present in the data.
-
-No labels or pre-tokenised files are needed. This is self-supervised training: the program reads the `.txt` files, joins documents with a blank line, encodes the text as UTF-8 byte IDs, and creates next-token prediction targets automatically.
-
-The byte-level tokenizer has a fixed vocabulary of 256 values, so no separate tokenizer training is needed. It is simple and supports all UTF-8 characters, but is less efficient than a subword tokenizer. The corpus must contain more bytes than `block_size`. With a small dataset, the model may memorise passages and produce limited or repetitive text.
-
-### Building a useful dataset
-
-There is no fixed file count that guarantees good results. As a practical starting point, aim for around **100,000 words** of carefully selected text; **200,000–500,000 words** gives this small model more examples to learn from. These are experimentation targets, not quality guarantees. A few dozen files can be enough to test the pipeline, but a larger, varied collection is more useful for assessing the writing style.
-
-For example, you could collect **100–300 documents averaging 500–1,500 words each**. Documents do not need to be the same length, and a document can be a complete email, article, set of notes or other coherent piece. Prefer complete examples over fragments without context.
-
-Choose roughly **5–8 recurring subject areas** if you want the model to write across several areas. Give the most space to the kinds of writing you expect to generate: as a starting balance, use about **60–70%** for the main use case, **20–30%** for other common topics, and the remainder for related material. If you only need one kind of writing, concentrate on that rather than adding unrelated topics. Consistent examples are more useful than broad but irrelevant coverage.
-
-Before adding files to `data/raw/`:
-
-1. Gather text that you wrote, or that you have permission to use, and that reflects the output you want.
-2. Remove exact duplicates, boilerplate that appears in every document, corrupted text and material unrelated to the intended use.
-3. Keep natural wording, punctuation, paragraphs and formatting; these are all patterns the model can learn.
-4. Save as plain-text `.txt` files encoded as UTF-8. Use subfolders to organise documents if helpful; the training script searches them recursively.
-5. Exclude passwords, private correspondence, personal details and other sensitive information you do not want the model to reproduce. Keep the raw dataset private and backed up appropriately.
-
-No manual labels or train/validation folders are required. The training script reads all `.txt` files, sorts and joins their contents with blank lines, then uses the first 90% of the resulting byte stream for training and the last 10% for validation. Both portions must be longer than `block_size`. This is a simple holdout by corpus position, not a random or document-level split; closely related passages may therefore appear in both portions. Training displays batch progress and reports training and validation loss after every epoch. Early stopping monitors validation loss, stops after 3 epochs without improvement by default, and restores the best model weights before saving the checkpoint. Adjust `early_stopping_patience` and `early_stopping_min_delta` in `configs/train_config.yaml` to tune this behaviour. The script does not currently create a processed dataset or deduplicate files for you, so curate the raw files before training.
-
-## Training
-
-To create a reproducible subset of complete stories from the TinyStories corpus without changing the original file, run:
+Place UTF-8 `.txt` files in `data/raw/`. The generation pipeline joins them, uses each UTF-8 byte as a token, and trains next-byte prediction. No manual tokenisation is needed.
 
 ```powershell
-python scripts/download_tinystories.py
+python -m src.train_gen
+python -m src.inference_gen --prompt "Dear colleague," --max-new-tokens 200
 ```
 
-To download up to 50,000 question-answer examples from the SQuAD training split, run:
+The model and training settings are in `configs/model_config_gen.yaml` and `configs/train_config_gen.yaml`. The checkpoint defaults to `checkpoints/model_gen.pt`.
+
+To create a sample plain-text corpus, run `python scripts/download_tinystories.py`.
+
+## Question answering
+
+QA records use UTF-8 JSONL, one object per line:
+
+```json
+{"context":"The capital of France is Paris.","question":"What is the capital of France?","answer":"Paris"}
+```
+
+Download SQuAD into document-level train and validation files:
 
 ```powershell
-python scripts/download_qa.py
+python scripts/download_qa.py --max-examples 50000
 ```
 
-The script writes UTF-8 examples to `data/raw/squad_qa.txt` as context, question and answer text. Use `--split validation`, `--max-examples 10000`, `--seed 7` or `--output data/raw/custom_qa.txt` to adjust the download. The `datasets` package is installed with the project requirements. The existing model can read these examples as plain text, but does not perform supervised question-answer fine-tuning.
-
-This one command should used in case that have no personal data. In fact, the main-branch-model used these one (in the first version) to build and config parametors
+The files are written to `data/raw/train.jsonl` and `data/raw/validation.jsonl`. For your own single JSONL file, split by context/document before training:
 
 ```powershell
-python -m src.train --data-dir data/processed
+python scripts/split_qa_dataset.py --input data/raw/my_qa.jsonl --output-dir data/raw/qa_personal
 ```
 
-Otherwise, after adding data to `data/raw/`, run this command from the project root:
+Then train using those files:
 
 ```powershell
-python -m src.train
+python -m src.train_qa --train-file data/raw/qa_personal/train.jsonl --validation-file data/raw/qa_personal/validation.jsonl
 ```
 
-The command reads `configs/model_config.yaml` and `configs/train_config.yaml`, creates a validation split when the corpus is large enough, and saves the weights to `checkpoints/model.pt`. Text files are memory-mapped, samples are converted to tensors on demand, and training uses a bounded shuffle buffer, so neither the corpus nor a full-dataset index permutation is copied into RAM. On CUDA, training uses bfloat16 mixed precision when supported, pinned batches and four data-loading workers by default. Reduce `batch_size` or `num_workers` if system memory is limited; increase them gradually only after checking GPU and system-memory use. Validation evaluates a random subset of 10,000 examples per epoch by default; set `validation_samples_per_epoch: null` to evaluate the full validation split. You can also reduce `block_size`, `d_model` or `n_layers` in the YAML files to experiment on a machine with limited resources. By default, `device: auto` selects CUDA when available and otherwise uses the CPU.
-
-After training, a loss-curve chart of the per-epoch training and validation loss is saved next to the checkpoint as `checkpoints/loss_curve.png` (path configurable via `loss_plot_path` in `configs/train_config.yaml`), so overfitting or underfitting can be spotted at a glance.
-
-## Generating text
+For downloaded SQuAD data, the default paths are already configured:
 
 ```powershell
-python -m src.inference --prompt "Dear colleague," --max-new-tokens 200
+python -m src.train_qa
+python -m src.evaluate_qa
+python -m src.inference_qa --context "The capital of France is Paris." --question "What is the capital of France?"
 ```
 
-Use `--checkpoint` to select another checkpoint and `--temperature` to adjust the randomness of generation.
+QA model and training settings live in `configs/model_config_qa.yaml` and `configs/train_config_qa.yaml`; the checkpoint defaults to `checkpoints/model_qa.pt`. The QA dataset formats a `Context / Question / Answer` prompt, truncates long contexts to fit the configured byte-level context window, and masks the prompt and padding so that cross-entropy is calculated only on the answer and its end delimiter. Keep the question short enough to fit the model's `block_size`.
 
-## Testing
+The QA downloader uses SQuAD, an English dataset. For Vietnamese QA, prepare Vietnamese examples in the same JSONL shape. Since the model is trained from scratch with a small byte vocabulary, results are intended for experimentation rather than production-quality QA.
+
+## Tests
 
 ```powershell
 python -m pytest
