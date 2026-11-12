@@ -153,10 +153,21 @@ def _nonnegative_float(value: object, name: str) -> float:
     return float(value)
 
 
+def _resolve_data_dir(configured_dir: Path, override_dir: Path | None) -> Path:
+    if override_dir is not None:
+        return override_dir
+    legacy_dir = Path("data/qa_dataset")
+    if configured_dir == Path("data/qa") and not configured_dir.exists() and legacy_dir.is_dir():
+        print(f"Using existing QA dataset directory: {legacy_dir}")
+        return legacy_dir
+    return configured_dir
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train the supervised QA model.")
     parser.add_argument("--model-config", type=Path, default=Path("configs/model_config_qa.yaml"))
     parser.add_argument("--train-config", type=Path, default=Path("configs/train_config_qa.yaml"))
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--train-file", type=Path)
     parser.add_argument("--validation-file", type=Path)
     parser.add_argument("--checkpoint-path", type=Path)
@@ -187,10 +198,13 @@ def main() -> None:
         else torch.device(device_setting)
     )
 
-    train_path = args.train_file or Path(train_config.get("train_file", "data/raw/train.jsonl"))
-    validation_path = args.validation_file or Path(
-        train_config.get("validation_file", "data/raw/validation.jsonl")
-    )
+    configured_data_dir = Path(train_config.get("data_dir", "data/qa"))
+    data_dir = _resolve_data_dir(configured_data_dir, args.data_dir)
+
+    train_path = args.train_file or data_dir / "train.jsonl"
+    validation_path = args.validation_file or data_dir / "validation.jsonl"
+    print(f"Training QA data: {train_path}")
+    print(f"Validation QA data: {validation_path}")
     train_records = load_qa_jsonl(train_path)
     validation_records = load_qa_jsonl(validation_path)
     train_dataset = QADataset(train_records, block_size, max_answer_bytes)

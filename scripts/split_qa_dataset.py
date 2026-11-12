@@ -7,8 +7,8 @@ byte-wise or per-row across sides.
 
 Usage:
     python scripts/split_qa_dataset.py \
-        --input data/raw/my_qa.jsonl \
-        --output-dir data/raw \
+        --input data/qa/my_qa.jsonl \
+        --output-dir data/qa \
         --validation-ratio 0.1 \
         --seed 42
 """
@@ -22,8 +22,8 @@ from pathlib import Path
 from scripts.download_qa import format_stats, record_key, write_jsonl
 
 
-DEFAULT_INPUT = Path("data/raw/my_qa.jsonl")
-DEFAULT_OUTPUT_DIR = Path("data/raw")
+DEFAULT_INPUT = Path("data/qa/my_qa.jsonl")
+DEFAULT_OUTPUT_DIR = Path("data/qa")
 DEFAULT_VALIDATION_RATIO = 0.1
 MIN_TRAIN_DOCUMENTS = 1
 

@@ -14,7 +14,7 @@ from typing import Mapping
 from datasets import load_dataset
 
 
-OUTPUT_DIR = Path("data/raw")
+OUTPUT_DIR = Path("data/qa")
 TRAIN_FILENAME = "train.jsonl"
 VALIDATION_FILENAME = "validation.jsonl"
 DATASET_NAME = "rajpurkar/squad"

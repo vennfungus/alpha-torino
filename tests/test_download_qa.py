@@ -240,6 +240,7 @@ def test_format_stats_reports_counts_and_averages(patch, tmp_path: Path) -> None
 
 
 def test_positive_int_rejects_invalid_values() -> None:
+    assert download_qa.OUTPUT_DIR == Path("data/qa")
     with pytest.raises(argparse.ArgumentTypeError, match="positive integer"):
         download_qa.positive_int("0")
 

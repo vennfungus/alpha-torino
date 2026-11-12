@@ -55,16 +55,16 @@ Download SQuAD into document-level train and validation files:
 python scripts/download_qa.py --max-examples 50000
 ```
 
-The files are written to `data/raw/train.jsonl` and `data/raw/validation.jsonl`. For your own single JSONL file, split by context/document before training:
+The files are written to `data/qa/train.jsonl` and `data/qa/validation.jsonl`. For your own single JSONL file, split by context/document before training:
 
 ```powershell
-python scripts/split_qa_dataset.py --input data/raw/my_qa.jsonl --output-dir data/raw/qa_personal
+python scripts/split_qa_dataset.py --input data/qa/my_qa.jsonl --output-dir data/qa
 ```
 
 Then train using those files:
 
 ```powershell
-python -m src.train_qa --train-file data/raw/qa_personal/train.jsonl --validation-file data/raw/qa_personal/validation.jsonl
+python -m src.train_qa --data-dir data/qa
 ```
 
 For downloaded SQuAD data, the default paths are already configured:
@@ -75,7 +75,7 @@ python -m src.evaluate_qa
 python -m src.inference_qa --context "The capital of France is Paris." --question "What is the capital of France?"
 ```
 
-QA model and training settings live in `configs/model_config_qa.yaml` and `configs/train_config_qa.yaml`; the checkpoint defaults to `checkpoints/model_qa.pt`. The QA dataset formats a `Context / Question / Answer` prompt, truncates long contexts to fit the configured byte-level context window, and masks the prompt and padding so that cross-entropy is calculated only on the answer and its end delimiter. Keep the question short enough to fit the model's `block_size`.
+QA model and training settings live in `configs/model_config_qa.yaml` and `configs/train_config_qa.yaml`; the training config's `data_dir` defaults to `data/qa`, and the checkpoint defaults to `checkpoints/model_qa.pt`. The trainer also detects the existing `data/qa_dataset` folder when `data/qa` is absent, so the supplied dataset can be used without moving it. The QA dataset formats a `Context / Question / Answer` prompt, truncates long contexts to fit the configured byte-level context window, and masks the prompt and padding so that cross-entropy is calculated only on the answer and its end delimiter. Keep the question short enough to fit the model's `block_size`.
 
 The QA downloader uses SQuAD, an English dataset. For Vietnamese QA, prepare Vietnamese examples in the same JSONL shape. Since the model is trained from scratch with a small byte vocabulary, results are intended for experimentation rather than production-quality QA.
 

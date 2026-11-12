@@ -1,9 +1,11 @@
+from pathlib import Path
+
 import torch
 from torch.utils.data import DataLoader
 
 from src.dataset_qa import QADataset, collate_qa_batch
 from src.model_qa import QALanguageModel
-from src.train_qa import train_qa
+from src.train_qa import _resolve_data_dir, train_qa
 
 
 def test_train_qa_optimises_answer_only_loss_and_reports_history() -> None:
@@ -53,3 +55,20 @@ def test_train_qa_rejects_invalid_early_stopping_settings() -> None:
         assert "patience" in str(error)
     else:
         raise AssertionError("Expected invalid patience to be rejected")
+
+
+def test_default_data_dir_uses_existing_qa_dataset_compatibility_path(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    legacy_dir = tmp_path / "data" / "qa_dataset"
+    legacy_dir.mkdir(parents=True)
+
+    assert _resolve_data_dir(Path("data/qa"), None) == Path("data/qa_dataset")
+
+
+def test_explicit_data_dir_overrides_compatibility_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data" / "qa_dataset").mkdir(parents=True)
+
+    assert _resolve_data_dir(Path("data/qa"), Path("custom/qa")) == Path("custom/qa")
