@@ -67,6 +67,14 @@ To create a reproducible subset of complete stories from the TinyStories corpus 
 python scripts/download_tinystories.py
 ```
 
+To download up to 50,000 question-answer examples from the SQuAD training split, run:
+
+```powershell
+python scripts/download_qa.py
+```
+
+The script writes UTF-8 examples to `data/raw/squad_qa.txt` as context, question and answer text. Use `--split validation`, `--max-examples 10000`, `--seed 7` or `--output data/raw/custom_qa.txt` to adjust the download. The `datasets` package is installed with the project requirements. The existing model can read these examples as plain text, but does not perform supervised question-answer fine-tuning.
+
 This one command should used in case that have no personal data. In fact, the main-branch-model used these one (in the first version) to build and config parametors
 
 ```powershell

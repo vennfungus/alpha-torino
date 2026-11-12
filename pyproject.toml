@@ -12,6 +12,7 @@ dependencies = [
     "torch>=2.0",
     "PyYAML>=6.0",
     "tqdm>=4.66",
+    "datasets>=2.18",
 ]
 
 [tool.pytest.ini_options]
